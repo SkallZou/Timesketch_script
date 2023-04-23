@@ -1,11 +1,56 @@
 import random
 from timesketch_api_client import client
+from timesketch_api_client import sketch
 from timesketch_import_client import importer
 from timesketch_import_client import utils
 from datetime import datetime
 import configparser
 import os
 import pandas as pd
+
+def upload_data(file, newIncident):
+    # absolute path
+    if file[1] == ":":
+        tmp = file.split("\\")
+        file = tmp[-1]
+        filename, fileextension = os.path.splitext(file)
+    else:
+    # only filename is specified
+        path = os.path.abspath(os.curdir)
+        file = path + "\\" + file
+        filename, fileextension = os.path.splitext(file)
+
+    dateNow = datetime.now()
+    time = dateNow.strftime("%d/%m/%Y %H:%M:%S")
+
+    with importer.ImportStreamer() as streamer:
+        streamer.set_sketch(newIncident)
+        streamer.set_timeline_name("{0}".format(time))
+
+        if fileextension == ".xlsx":
+            df = pd.read_excel(file)
+
+        elif fileextension == ".csv":
+            df = pd.read_csv(file, delimiter=';')
+
+        if 'datetime' not in df.columns or 'time' not in df.columns:
+            for column in df.columns:
+                if "time" in column or "date" in column:
+                    time = column
+                    break
+            df.rename(columns={time: 'datetime'}, inplace=True)
+
+        date = pd.to_datetime(df["datetime"], dayfirst=True, utc=True)
+        df["datetime"] = date
+        df.columns = [column.replace(' ', '_') for column in df.columns]
+        streamer.set_message_format_string("{Username:s} |--> {Command_line:s}")
+        streamer.set_timestamp_description("TEHTRIS XDR log")  # Determine the type of log according to the filename ?
+        streamer.add_data_frame(df)
+
+def incident_list(tsClient):
+    print("[#] --- List of investigations ---")
+    for sketch in tsClient.list_sketches():
+        print("    ID{0} - {1}".format(sketch.id, sketch.name))
 
 def main():
 
@@ -36,60 +81,33 @@ def main():
             newIncident = tsClient.get_sketch(list(sketch_dic)[0])
             print("[+] Created Investigation: [{0}] - {1}".format(newIncident.id, newIncident.name))
             # Get file from user
-            path=os.path.abspath(os.curdir)
             print("Specify the file to analyze")
             file = input()
-            file = path + "\\" + file
-            filename, fileextension = os.path.splitext(file)
+            upload_data(file, newIncident)
 
-            with importer.ImportStreamer() as streamer:
-                streamer.set_sketch(newIncident)
-                streamer.set_timeline_name("Breach {0}".format(time))
-
-                if fileextension == ".xlsx":
-                    df = pd.read_excel(file)
-                    if 'datetime' not in df.columns:
-                        for column in df.columns:
-                            if "time" in column:
-                                time = column
-                                break
-                        df.rename(columns={time: 'datetime'}, inplace=True)
-
-                    date = pd.to_datetime(df["datetime"], dayfirst=True, utc=True)
-                    df["datetime"] = date
-                    streamer.set_message_format_string('{Username:s} run {Path:s}')
-                    streamer.set_timestamp_description("PowerShell Monitoring")
-                    streamer.add_data_frame(df)
-
-                elif fileextension == ".csv":
-                    df = pd.read_csv(file, delimiter=';')
-                    if 'datetime' not in df.columns:
-                        for column in df.columns:
-                            if "time" in column:
-                                time = column
-                                break
-                        df.rename(columns={time: 'datetime'}, inplace=True)
-
-                    date = pd.to_datetime(df["datetime"], dayfirst=True, utc=True)
-                    df["datetime"] = date
-                    df.columns = [column.replace(' ', '_') for column in df.columns]
-                    streamer.set_message_format_string("{Username:s} - {Command_line:s}")
-                    streamer.set_timestamp_description("EDRlog") # Determine the type of log according to the filename ?
-                    streamer.add_data_frame(df)
 
         elif choice == "2":
             # Check on current investigation
-            print("[#] --- List of investigations ---")
-            for sketch in tsClient.list_sketches():
-                print("    ID{0} - {1}".format(sketch.id, sketch.name))
-            print("\n")
+            incident_list(tsClient)
+            # Get incident
+            print("Select your incident")
+            ID = input()
+            incident = tsClient.get_sketch(int(ID))
+            message = "this is a test message2"
+            date = time
+            timestamp_desc = "ManualLog"
+            # print(incident.add_event(message, date, timestamp_desc, tags=["Olivier"]))
+            # print(incident.get_event('122', '119'))
+            for timeline in incident.list_timelines():
+                print(timeline.index.fields)
+                print(timeline.index.fields[0])
+                print(timeline.index.fields)
+
 
         elif choice == "3":
             userRequest=""
             while(userRequest not in ["exit()", "all()"]):
-                print("[#] --- List of investigations ---")
-                for sketch in tsClient.list_sketches():
-                    print("     ID{0} - {1}".format(sketch.id, sketch.name))
+                incident_list(tsClient)
                 sketch_dic = dict((x.id, x) for x in tsClient.list_sketches())
 
                 print("[?] Please indicate the sketch ID to delete\nType all() to delete all.\nType exit() to exit.")
